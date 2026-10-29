@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOVEREIGN V8.0 - Skylines Edition</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050814; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: white; user-select: none; }
+        
+        /* Cities Skylines Style UI Dashboard */
+        #top-bar { position: absolute; top: 0; left: 0; width: 100%; height: 60px; background: rgba(10, 14, 25, 0.9); border-bottom: 2px solid #00d2ff; display: flex; align-items: center; justify-content: space-around; font-weight: bold; font-size: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.5); z-index: 10; }
+        .stat-box { text-align: center; }
+        .stat-val { font-size: 18px; margin-top: 2px; }
+        #val-budget { color: #55ff55; }
+        #val-trust { color: #00d2ff; }
+        #val-inflation { color: #ff3366; }
+        #val-pop { color: #ffcc00; }
+
+        /* Control Panel / Build Menu */
+        #build-menu { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(15, 20, 35, 0.9); border: 1px solid #1a365d; padding: 15px 25px; border-radius: 12px; display: flex; gap: 15px; box-shadow: 0 0 25px rgba(0,210,255,0.2); z-index: 10; }
+        .build-btn { background: #1a233a; border: 1px solid #00d2ff; color: white; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: all 0.2s; text-align: center; }
+        .build-btn:hover { background: #00d2ff; color: #000; box-shadow: 0 0 15px #00d2ff; }
+        .cost { font-size: 11px; color: #aaa; display: block; margin-top: 3px; }
+        .build-btn:hover .cost { color: #333; }
+
+        #news-ticker { position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); padding: 8px 20px; border-radius: 20px; font-size: 14px; border: 1px solid #333; color: #00ffcc; text-shadow: 0 0 10px #00ffcc; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+    <div id="top-bar">
+        <div class="stat-box">BUDGET (งบประมาณ)<div id="val-budget" class="stat-val">$50,000</div></div>
+        <div class="stat-box">APPROVAL (ความเชื่อมั่น)<div id="val-trust" class="stat-val">75%</div></div>
+        <div class="stat-box">INFLATION (เงินเฟ้อ)<div id="val-inflation" class="stat-val">2.1%</div></div>
+        <div class="stat-box">POPULATION (ประชากร)<div id="val-pop" class="stat-val">1,200</div></div>
+    </div>
+
+    <div id="news-ticker">ยินดีต้อนรับท่านประธานาธิบดี สู่ระบบบริหารมหานคร SOVEREIGN V8.0</div>
+
+    <div id="build-menu">
+        <button class="build-btn" onclick="buildDistrict('residential')">🏠 สร้างย่านที่อยู่อาศัย<span class="cost">Cost: $5,000</span></button>
+        <button class="build-btn" onclick="buildDistrict('industrial')">🏭 สร้างเขตอุตสาหกรรม<span class="cost">Cost: $8,000</span></button>
+        <button class="build-btn" onclick="enactPolicy('populism')">💸 นโยบายแจกเงิน (Populism)<span class="cost">Effect: +Trust, +Inflation</span></button>
+        <button class="build-btn" onclick="enactPolicy('education')">📚 ลงทุนการศึกษา (Human Capital)<span class="cost">Cost: $6,000</span></button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Game Economy State
+        let state = {
+            budget: 50000,
+            trust: 75.0,
+            inflation: 2.1,
+            population: 1200
+        };
+
+        // Scene Setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050814);
+        scene.fog = new THREE.FogExp2(0x050814, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 1000);
+        camera.position.set(0, 40, 50);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(50, 80, 50);
+        scene.add(dirLight);
+
+        // Ground Grid (City Map Base)
+        const gridHelper = new THREE.GridHelper(100, 20, 0x1a365d, 0x111c30);
+        gridHelper.position.y = -0.1;
+        scene.add(gridHelper);
+
+        const basePlane = new THREE.Mesh(
+            new THREE.PlaneGeometry(100, 100),
+            new THREE.MeshStandardMaterial({ color: 0x090d1a, roughness: 0.9 })
+        );
+        basePlane.rotation.x = -Math.PI / 2;
+        scene.add(basePlane);
+
+        // City Buildings Storage
+        const cityGroup = new THREE.Group();
+        scene.add(cityGroup);
+
+        // สร้างตึกตั้งต้นรอบเมือง
+        function initCity() {
+            for(let x = -30; x <= 30; x += 15) {
+                for(let z = -30; z <= 30; z += 15) {
+                    if(Math.abs(x) < 10 && Math.abs(z) < 10) continue;
+                    addBuilding(x, z, Math.random() > 0.5 ? 'residential' : 'industrial');
+                }
+            }
+        }
+
+        function addBuilding(x, z, type) {
+            const height = 5 + Math.random() * 20;
+            const geom = new THREE.BoxGeometry(8, height, 8);
+            const color = type === 'residential' ? 0x00d2ff : 0xffaa00;
+            const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.5 });
+            const building = new THREE.Mesh(geom, mat);
+            building.position.set(x, height / 2, z);
+            cityGroup.add(building);
+        }
+
+        initCity();
+
+        // Build Actions (Cities Skylines Mechanics)
+        function buildDistrict(type) {
+            const cost = type === 'residential' ? 5000 : 8000;
+            if (state.budget < cost) {
+                showNews("งบประมาณไม่เพียงพอสำหรับการก่อสร้าง!");
+                return;
+            }
+            state.budget -= cost;
+            state.population += type === 'residential' ? 250 : 100;
+            
+            // สุ่มตำแหน่งสร้างตึกใหม่ในตารางเมือง
+            const rx = (Math.floor(Math.random() * 6) - 3) * 12;
+            const rz = (Math.floor(Math.random() * 6) - 3) * 12;
+            addBuilding(rx, rz, type);
+
+            showNews(type === 'residential' ? "สร้างย่านที่อยู่อาศัยสำเร็จ! ประชากรเพิ่มขึ้น" : "สร้างเขตอุตสาหกรรมสำเร็จ! รายได้เมืองเพิ่มขึ้น");
+            updateUI();
+        }
+
+        function enactPolicy(type) {
+            if (type === 'populism') {
+                state.inflation += 4.5;
+                state.trust += 8.0;
+                state.budget += 10000; // ได้คะแนนนิยมและเงินระยะสั้น แต่แลกมาด้วยเงินเฟ้อ
+                showNews("ประกาศใช้นโยบายประชานิยมแจกเงิน! ความนิยมพุ่ง แต่เงินเฟ้อทะยาน");
+            } else if (type === 'education') {
+                if (state.budget < 6000) {
+                    showNews("งบประมาณไม่พอลงทุนการศึกษา!");
+                    return;
+                }
+                state.budget -= 6000;
+                state.inflation = Math.max(0, state.inflation - 0.8);
+                state.trust += 4.0;
+                showNews("ลงทุนโครงสร้างพื้นฐานและการศึกษาสำเร็จ! เศรษฐกิจเสถียรภาพดีขึ้น");
+            }
+            updateUI();
+        }
+
+        function showNews(text) {
+            document.getElementById('news-ticker').innerText = text;
+        }
+
+        function updateUI() {
+            document.getElementById('val-budget').innerText = "$" + state.budget.toLocaleString();
+            document.getElementById('val-trust').innerText = state.trust.toFixed(1) + "%";
+            document.getElementById('val-inflation').innerText = state.inflation.toFixed(1) + "%";
+            document.getElementById('val-pop').innerText = state.population.toLocaleString();
+        }
+
+        // Automatic Economic Simulation Tick (ทุกๆ 3 วินาที เศรษฐกิจเมืองจะอัปเดต)
+        setInterval(() => {
+            // รายได้จากประชากรและอุตสาหกรรม
+            state.budget += Math.floor(state.population * 1.5);
+            
+            // ถ้าเงินเฟ้อสูงเกิน 10% ความเชื่อมั่นจะร่วง
+            if (state.inflation > 10) {
+                state.trust -= 4;
+                showNews("⚠️ วิกฤตเงินเฟ้อรุนแรง! ประชาชนเริ่มประท้วงรัฐบาล");
+            }
+
+            // ถ้าความเชื่อมั่นต่ำกว่า 20% เกมจะโอเวอร์หรือรัฐบาลล่ม
+            if (state.trust <= 0) {
+                state.trust = 0;
+                showNews("🚨 รัฐบาลล่มสลาย! ประชาชนขับไล่ออกจากตำแหน่งประธานาธิบดี");
+            }
+
+            updateUI();
+        }, 3000);
+
+        // Smooth Camera Rotation (มุมมองเมืองแบบ Cinematic)
+        let angle = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+            angle += 0.002;
+            camera.position.x = Math.cos(angle) * 50;
+            camera.position.z = Math.sin(angle) * 50;
+            camera.lookAt(0, 5, 0);
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
